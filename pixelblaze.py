@@ -1,4 +1,5 @@
 from websocket import create_connection
+from time import sleep
 import random
 
 def send_and_receive(url, message):
@@ -38,4 +39,18 @@ selected = programs[random.randrange(len(programs))]
 print 'Selected ' + selected["id"] + ' - ' + selected["name"]
 
 send_and_forget(url, '{"activeProgramId": "' + selected["id"] + '"}')
+
+sleep(2)
+
+print 'Playing around with the selected variable'
+
+send_and_forget(url, '{"activeProgramId": "Xv9GdRrNxTRSkZhba"}')
+
+while True:
+  selected = random.randrange(8)
+  print 'selected = ' + str(selected)
+  message = '{"setVars": {"selected": ' + str(selected) + '}}'
+  print message
+  send_and_forget(url, message)
+  sleep(0.5)
 
