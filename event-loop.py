@@ -1,10 +1,11 @@
+from RPi import GPIO
 from threading import Thread
 from time import sleep
 from os import system
+from websocket import create_connection
 
 import random
 import sys
-
 
 
 ##########################
@@ -27,32 +28,91 @@ def state_change():
     return False
 
 
+def apply_state():
+    select(url, state["selection"])
+
+
+
+##########################
+# Interface functions
+##########################
+
+def send_and_receive(url, message):
+    ws = create_connection(url)
+    ws.send(message)
+    return ws.recv()
+    ws.close()
+
+
+def send_and_forget(url, message):
+    ws = create_connection(url)
+    ws.send(message)
+    ws.close()
+
+
+def select(url, selection):
+    message = '{"setVars": {"selected": ' + str(selection) + '}}'
+    send_and_forget(url, message)
+
 
 ##########################
 # Background functions
 ##########################
 
-def selector_tracker():
+def button_tracker():
     global state
     global exit_flag
+    global sw
+
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(sw, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
     while not exit_flag:
-        state["selection"] = random.randrange(30)
-        sleep(random.uniform(0,4))
+        swState = GPIO.input(sw)
+
+        if swState == 0:
+            state["button"] = True
+            while swState == 0:
+                sleep(0.05)
+                swState = GPIO.input(sw)
+            state["button"] = False
 
 
-def proximity_tracker():
+def rotator_tracker():
+
     global state
     global exit_flag
+    global cl
+    global dt
+
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(cl, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    GPIO.setup(dt, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+    counter = 0
+    selections = 8
+
+    clState_last = GPIO.input(cl)
+    dtState_last = GPIO.input(dt)
 
     while not exit_flag:
-        if (state["proximity"]):
-            sleep(0.5)
-            state["proximity"] = False
-        else:
-            sleep(random.uniform(0,2))
-            if (random.random() > 0.7):
-                state["proximity"] = True
+        clState = GPIO.input(cl)
+        dtState = GPIO.input(dt)
+
+        if clState == 0:
+            while clState != 1 or dtState != 1:
+                clState = GPIO.input(cl)
+                dtState = GPIO.input(dt)
+            counter = (counter - 1)%selections
+            state["selection"] = counter
+            # select(url, counter%8)
+        elif dtState == 0:
+            while clState != 1 or dtState != 1:
+                clState = GPIO.input(cl)
+                dtState = GPIO.input(dt)
+            counter = (counter + 1)%selections
+            state["selection"] = counter
+            # select(url, counter%8)
 
 
 ##########################
@@ -70,6 +130,14 @@ state = {
 }
 previous_state = dict(state)
 
+ip = '192.168.1.19'
+port = '81'
+url = 'ws://' + ip + ':' + port + '/'
+send_and_forget(url, '{"activeProgramId": "Xv9GdRrNxTRSkZhba"}')
+
+cl = 21
+dt = 16
+sw = 20
 
 
 ##########################
@@ -78,22 +146,25 @@ previous_state = dict(state)
 
 random.seed()
 
-
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(cl, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+GPIO.setup(dt, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+GPIO.setup(sw, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    
 
 ##########################
 # Background threads
 ##########################
 
-thread_selector = Thread(target=selector_tracker)
-thread_proximity = Thread(target=proximity_tracker)
+thread_button = Thread(target=button_tracker)
+thread_rotator = Thread(target=rotator_tracker)
 # thread_rain = Thread(target=rain_tracker)
 # thread_calevent = Thread(target=calevent_tracker)
 
-thread_selector.start()
-thread_proximity.start()
+thread_button.start()
+thread_rotator.start()
 # thread_rain.start()
 # thread_calevent.start()
-
 
 
 ##########################
@@ -102,13 +173,18 @@ thread_proximity.start()
 
 count = 0
 
-while True:
-    sleep(0.1)
-    if state_change():
-        print_state(True)
-    count += 1
-    if count > 150:
-        exit_flag = True
-        exit()
+try:
 
+    while True:
+        # sleep(0.01)
+        if state_change():
+            print_state(True)
+            apply_state()
+        count += 1
+        # if count > 100:
+            # exit_flag = True
+            # exit()
+
+finally:
+    GPIO.cleanup()
 
