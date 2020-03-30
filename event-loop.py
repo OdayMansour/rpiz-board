@@ -22,14 +22,20 @@ def print_state(clear):
 
 def state_change():
     for k in state:
-        if state[k] != previous_state[k]:
+        if state[k] != previous_state[k] and k not in ["current_program", "lights_on"]: # Do not apply when meta state changes
             previous_state[k] = state[k]
+            if k == "button" and state[k] == False: # Save button off but do not apply changes
+                return False
             return True
     return False
 
 
 def apply_state():
-    select(url, state["selection"])
+    if state["button"]:
+        apply_selection(url)
+    else:
+        change_selection(url, state["selection"])
+    True
 
 
 
@@ -46,13 +52,45 @@ def send_and_receive(url, message):
 
 def send_and_forget(url, message):
     ws = create_connection(url)
+    print("Sending " + message)
     ws.send(message)
     ws.close()
 
 
-def select(url, selection):
+def change_selection(url, selection):
+    show_selector(url)
     message = '{"setVars": {"selected": ' + str(selection) + '}}'
     send_and_forget(url, message)
+    on_lights(url)
+
+
+def apply_selection(url):
+    global state
+    state["current_program"] = "pulse"
+    send_and_forget(url, '{"activeProgramId": "rZQv9EJm736mJ9G5R"}')
+    sleep(2)
+    off_lights(url)
+
+
+def off_lights(url):
+    global state
+    if state["lights_on"]:
+        state["lights_on"] = False
+        send_and_forget(url, '{"brightness": 0}')
+
+
+def on_lights(url):
+    global state
+    if not state["lights_on"]:
+        state["lights_on"] = True
+        send_and_forget(url, '{"brightness": 0.05}')
+
+
+def show_selector(url):
+    global state
+    if state["current_program"] != "selector":
+        state["current_program"] = "selector"
+        send_and_forget(url, '{"activeProgramId": "Xv9GdRrNxTRSkZhba"}')
 
 
 ##########################
@@ -105,14 +143,12 @@ def rotator_tracker():
                 dtState = GPIO.input(dt)
             counter = (counter - 1)%selections
             state["selection"] = counter
-            # select(url, counter%8)
         elif dtState == 0:
             while clState != 1 or dtState != 1:
                 clState = GPIO.input(cl)
                 dtState = GPIO.input(dt)
             counter = (counter + 1)%selections
             state["selection"] = counter
-            # select(url, counter%8)
 
 
 ##########################
@@ -126,14 +162,15 @@ state = {
     "button": False,
     "rain": False,
     "proximity": False,
-    "calevent": "none"
+    "calevent": "none",
+    "lights_on": True,
+    "current_program": "selector"
 }
 previous_state = dict(state)
 
 ip = '192.168.1.19'
 port = '81'
 url = 'ws://' + ip + ':' + port + '/'
-send_and_forget(url, '{"activeProgramId": "Xv9GdRrNxTRSkZhba"}')
 
 cl = 21
 dt = 16
@@ -150,7 +187,10 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setup(cl, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 GPIO.setup(dt, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 GPIO.setup(sw, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-    
+
+show_selector(url)
+change_selection(url, 0)
+on_lights(url)
 
 ##########################
 # Background threads
@@ -178,7 +218,7 @@ try:
     while True:
         # sleep(0.01)
         if state_change():
-            print_state(True)
+            print_state(False)
             apply_state()
         count += 1
         # if count > 100:
